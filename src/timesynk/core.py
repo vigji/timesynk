@@ -38,12 +38,10 @@ def _validate_and_set_span(span: Optional[SpanType]) -> np.ndarray:
             if not isinstance(elem, numbers.Number):
                 raise TypeError("Span iterable must contain only numeric values")
 
-        if len(span) == 1:
-            return (0, span[0], 1)
-        elif len(span) == 2:
-            return (span[0], span[1], 1)
-        elif len(span) == 3:
-            return tuple(span)
+        if len(span) >= 1 and len(span) <= 3:
+            # leverage known behavior of slice() to handle 1, 2, or 3 elements:
+            _slice = slice(*span)
+            return (_slice.start, _slice.stop, _slice.step)
         else:
             raise ValueError("Span iterable must have between 1 and 3 elements")
 
