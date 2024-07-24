@@ -1,7 +1,7 @@
-from unicodedata import numeric
-import numpy as np
-from typing import Union, Tuple, Optional, Iterable
 import numbers
+from typing import Iterable, Optional, Union
+
+import numpy as np
 
 SpanType = Union[numbers.Real, Iterable[numbers.Real]]
 
@@ -39,9 +39,8 @@ class TimeBase:
         event_ids: Optional[Iterable[numbers.Real]] = None,
         span: Optional[SpanType] = None,
     ) -> None:
-        
         self.span = _validate_and_set_span(span)
-        
+
         self.event_times = np.array(event_times)
         # span: either number of samples, if working with idxs, or a tuple of (start, end, step)
         if event_ids is None:
@@ -49,21 +48,26 @@ class TimeBase:
         else:
             self.event_ids = np.array(event_ids)
 
-    def map_to(self, other_timebase: "TimeBase") -> "TimeBaseMap":
+        if len(self.event_times) != len(self.event_ids):
+            raise ValueError("Event times and event ids must have the same length.")
+
+    def _map_to(self, other_timebase: "TimeBase") -> "TimeBaseMap":
         return TimeBaseMap.from_timebases(self, other_timebase)
 
     def map_times_to(
-        self, other_timebase: "TimeBase", data: Iterable[numbers.Real]
+        self, target_timebase: "TimeBase", data: Iterable[numbers.Real]
     ) -> Iterable[numbers.Real]:
         """Core index conversion function, without type conversion."""
-        own_to_other_map = self.map_to(other_timebase)
-        return own_to_other_map.transform(data)
+        own_to_target_map = self._map_to(target_timebase)
+        return own_to_target_map.transform(data)
 
     def interpolate_to(
-        self, other_timebase: "TimeBase", data: Iterable[numbers.Real]
+        self, target_timebase: "TimeBase", data: Iterable[numbers.Real]
     ) -> Iterable[numbers.Real]:
         """Core index conversion function, with type conversion."""
-        pass
+
+        own_to_target_map = self._map_to(target_timebase)
+        return own_to_target_map.resample(data)
 
 
 class TimeBaseMap:
@@ -74,11 +78,11 @@ class TimeBaseMap:
         source_span: Optional[SpanType] = None,
         target_span: Optional[SpanType] = None,
     ) -> None:
-        self.coef = coef
-        self.offset = offset
+        self._coef = coef
+        self._offset = offset
 
-        self.source_span = _validate_and_set_span(source_span)
-        self.target_span = _validate_and_set_span(target_span)
+        self._source_span = _validate_and_set_span(source_span)
+        self._target_span = _validate_and_set_span(target_span)
 
         self._source_timestamps = None
         self._target_timestamps = None
@@ -114,60 +118,45 @@ class TimeBaseMap:
     def average_timebase_maps(
         cls, timebase_map_list: list["TimeBaseMap"]
     ) -> "TimeBaseMap":
-        coef = np.mean([timebase_map.coef for timebase_map in timebase_map_list])
-        offset = np.mean([timebase_map.offset for timebase_map in timebase_map_list])
-        return cls(coef, offset)
+        coef = np.mean([timebase_map._coef for timebase_map in timebase_map_list])
+        offset = np.mean([timebase_map._offset for timebase_map in timebase_map_list])
+        return cls(coef=coef, offset=offset)
 
     @property
     def source_timestamps(self) -> np.ndarray:
-        if self.source_span is None:
+        if self._source_span is None:
             raise ValueError("Source span must be provided to interpolate values!")
         if self._source_timestamps is None:
             self._source_timestamps = np.arange(
-                self.source_span[0], self.source_span[1], self.source_span[2]
+                self._source_span[0], self._source_span[1], self._source_span[2]
             )
         return self._source_timestamps
 
     @property
     def target_timestamps(self) -> np.ndarray:
-        if self.target_span is None:
+        if self._target_span is None:
             raise ValueError("Target span must be provided to interpolate values!")
         if self._target_timestamps is None:
             self._target_timestamps = np.arange(
-                self.target_span[0], self.target_span[1], self.target_span[2]
+                self._target_span[0], self._target_span[1], self._target_span[2]
             )
         return self._target_timestamps
 
     @property
     def inverse(self) -> "TimeBaseMap":
         return TimeBaseMap(
-            coef=1 / self.coef,
-            offset=-self.offset / self.coef,
-            source_span=self.target_span,
-            target_span=self.source_span,
+            coef=1 / self._coef,
+            offset=-self._offset / self._coef,
+            source_span=self._target_span,
+            target_span=self._source_span,
         )
 
     def transform(self, times: int | float | np.ndarray) -> int | np.ndarray:
-        return times * self.coef + self.offset
+        return times * self._coef + self._offset
 
     def resample(self, data: np.ndarray) -> np.ndarray:
-        return np.interp(self.source_timestamps, self.target_timestamps, data)
-
-
-if __name__ == "__main__":
-    # Example usage
-    events_array = np.array([1, 2, 3, 4, 5])
-    true_coef = 2
-    true_offset = 5
-    timebase1 = TimeBase(events_array)
-    timebase2 = TimeBase(events_array * true_coef + true_offset)
-
-    timebase_map = TimeBaseMap.from_timebases(timebase1, timebase2)
-
-    # make sure estimated are very close to true values:
-    assert np.isclose(timebase_map.coef, true_coef)
-    assert np.isclose(timebase_map.offset, true_offset)
-    assert all(np.isclose(timebase_map.transform(events_array), timebase2.event_times))
-
-    print(timebase_map.transform(1))  # 1.0
-    print(timebase1.event_times)
+        if len(data) != len(self.source_timestamps):
+            raise ValueError(
+                "Data to resample must have the same length as the source timestamps"
+            )
+        return np.interp(self.target_timestamps, self.source_timestamps, data)
