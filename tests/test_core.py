@@ -102,67 +102,6 @@ def timebasemap_fixture(request):
 
 
 class TestTimeBase:
-    def test_timebase_init(self, timebase_fixture):
-        timebase, event_times, expected_ids = timebase_fixture
-        assert np.array_equal(timebase.event_times, event_times)
-        assert np.array_equal(timebase.event_ids, expected_ids)
-
-    def test_timebase_with_invalid_event_ids_length(self):
-        events_array = np.array([1, 2, 3, 4, 5])
-        event_ids = np.array([10, 20])
-        with pytest.raises(ValueError):
-            TimeBase(events_array, event_ids)
-
-    def test_timebase_with_span(self, timebase_span_fixture):
-        timebase, expected_span = timebase_span_fixture
-        assert np.array_equal(timebase.span, expected_span)
-
-    def test_timebase_invalid_span(self):
-        events_array = np.array([1, 2, 3, 4, 5])
-
-        invalid_span = (10, 0, "a")
-        with pytest.raises(TypeError):
-            TimeBase(events_array, span=invalid_span)
-
-        invalid_span = (10, 0, 1, 2)
-        with pytest.raises(ValueError):
-            TimeBase(events_array, span=invalid_span)
-
-        invalid_span = object()  # a random non-int, non-iterable
-        with pytest.raises(TypeError):
-            TimeBase(events_array, span=invalid_span)
-
-    def test_timebase_map_to(self, timebase_base, timebase_scaled):
-        timebase_map = timebase_base._map_to(timebase_scaled)
-        assert isinstance(timebase_map, TimeBaseMap)
-        assert np.isclose(timebase_map._coef, 2)
-        assert np.isclose(timebase_map._offset, 5)
-
-    def test_timebase_map_times_to(self, timebase_base, timebase_scaled):
-        data = np.array([10, 20, 30, 40, 50])
-        mapped_times = timebase_base.map_times_to(timebase_scaled, data)
-        expected_times = timebase_base._map_to(timebase_scaled).transform(data)
-        assert np.allclose(mapped_times, expected_times)
-
-    def test_timebase_interpolate_to(
-        self, timebase_with_span_base, timebase_with_span_scaled
-    ):
-        data = np.array([10, 20, 30, 40, 50])
-        interpolated_data = timebase_with_span_base.interpolate_to(
-            timebase_with_span_scaled, data
-        )
-        # print(timebase_with_span_base.event_ids.shape, data.shape)
-        _map = timebase_with_span_base._map_to(timebase_with_span_scaled)
-        # print(_map.source_timestamps.shape, _map.target_timestamps.shape)
-        # assert False
-        expected_data = np.interp(_map.target_timestamps, _map.source_timestamps, data)
-        assert np.allclose(interpolated_data, expected_data)
-
-        expected_source = timebase_with_span_scaled.interpolate_to(
-            timebase_with_span_base, interpolated_data
-        )
-        assert np.allclose(expected_source, data)
-
     @pytest.fixture
     def timebase_base(self):
         events_array = np.array([1, 2, 3, 4, 5])
@@ -199,6 +138,66 @@ class TestTimeBase:
         span = (0, 5, 1)
         timebase = TimeBase(event_times, span=span)
         return timebase, span
+
+    def test_timebase_init(self, timebase_fixture):
+        timebase, event_times, expected_ids = timebase_fixture
+        assert np.allclose(timebase.event_times, event_times)
+        assert np.allclose(timebase.event_ids, expected_ids)
+
+    def test_timebase_with_invalid_event_ids_length(self):
+        events_array = np.array([1, 2, 3, 4, 5])
+        event_ids = np.array([10, 20])
+        with pytest.raises(ValueError):
+            TimeBase(events_array, event_ids)
+
+    def test_timebase_with_span(self, timebase_span_fixture):
+        timebase, expected_span = timebase_span_fixture
+        assert np.array_equal(timebase.span, expected_span)
+
+    def test_timebase_invalid_span(self):
+        events_array = np.array([1, 2, 3, 4, 5])
+
+        invalid_span = (10, 0, "a")
+        with pytest.raises(TypeError):
+            TimeBase(events_array, span=invalid_span)
+
+        invalid_span = (10, 0, 1, 2)
+        with pytest.raises(ValueError):
+            TimeBase(events_array, span=invalid_span)
+
+        invalid_span = object()  # a random non-int, non-iterable
+        with pytest.raises(TypeError):
+            TimeBase(events_array, span=invalid_span)
+
+    def test_timebase_map_to(self, timebase_base, timebase_scaled):
+        timebase_map = timebase_base._map_to(timebase_scaled)
+        assert isinstance(timebase_map, TimeBaseMap)
+        assert np.isclose(timebase_map._coef, 2)
+        assert np.isclose(timebase_map._offset, 5)
+
+    def test_timebase_map_times_to(self, timebase_base, timebase_scaled):
+        data = np.array([10, 20, 30, 40, 50])
+        mapped_times = timebase_base.transform_to(timebase_scaled, data)
+        expected_times = timebase_base._map_to(timebase_scaled).transform(data)
+        assert np.allclose(mapped_times, expected_times)
+
+    def test_timebase_resample_to(
+        self, timebase_with_span_base, timebase_with_span_scaled
+    ):
+        data = np.array([10, 20, 30, 40, 50])
+        resampled_data = timebase_with_span_base.resample_to(
+            timebase_with_span_scaled, data
+        )
+        _map = timebase_with_span_base._map_to(timebase_with_span_scaled)
+        expected_data = np.interp(_map.target_timestamps, _map.source_timestamps, data)
+        assert np.allclose(resampled_data, expected_data)
+
+        expected_source = timebase_with_span_scaled.resample_to(
+            timebase_with_span_base, resampled_data
+        )
+        # clip to avoid off-by-one errors:
+        expected_source = expected_source[: len(data)]
+        assert np.allclose(expected_source, data)
 
 
 base_events_array = np.array([1, 2, 3, 4, 5])
@@ -237,6 +236,18 @@ class TestTimeBaseMap:
         events_array = np.array([10, 20, 30, 40, 50])
         events_ids = np.array([10, 20, 30, 40, 50])
         return TimeBase(events_array, event_ids=events_ids)
+
+    @pytest.fixture
+    def timebase_string_ids(self):
+        events_array = np.array(base_events_array)
+        events_ids = np.array(["a", "b", "c", "d", "e"])
+        return TimeBase(events_array, events_ids)
+
+    @pytest.fixture
+    def timebase_string_ids_overlap(self):
+        events_array = np.array(base_events_array[1:-1])
+        events_ids = np.array(["b", "c", "d"])
+        return TimeBase(events_array * 2 + 5, events_ids)
 
     @pytest.fixture
     def timebase_with_span_scaled(self):
@@ -307,6 +318,13 @@ class TestTimeBaseMap:
         assert np.isclose(average_timebasemap._coef, expected_coef)
         assert np.isclose(average_timebasemap._offset, expected_offset)
 
+    def test_string_ids(self, timebase_string_ids, timebase_string_ids_overlap):
+        timebasemap = TimeBaseMap.from_timebases(
+            timebase_string_ids, timebase_string_ids_overlap
+        )
+        assert np.isclose(timebasemap._coef, 2)
+        assert np.isclose(timebasemap._offset, 5)
+
 
 class TestTimeBaseMapInterpolation:
     def setup_method(self):
@@ -326,7 +344,7 @@ class TestTimeBaseMapInterpolation:
         data = np.array([10, 20, 30, 40, 50])
         resampled_data = self.timebase_map.resample(data)
         expected_resampled_data = np.interp(
-            self.timebase_map.target_timestamps,
+            self.timebase_map.inverse.transform(self.timebase_map.target_timestamps),
             self.timebase_map.source_timestamps,
             data,
         )
@@ -353,7 +371,7 @@ class TestTimeBaseMapInterpolation:
         self.timebase_map._target_span = None
         data = np.array([10, 20, 30, 40, 50])
         with pytest.raises(
-            ValueError, match="Target span must be provided to interpolate values!"
+            ValueError, match="Target span must be provided to resample values!"
         ):
             self.timebase_map.resample(data)
 
@@ -362,11 +380,15 @@ class TestTimeBaseMapInterpolation:
         inverse_timebase_map = self.timebase_map.inverse
         resampled_data = inverse_timebase_map.resample(data)
         expected_resampled_data = np.interp(
-            inverse_timebase_map.target_timestamps,
+            self.timebase_map.transform(inverse_timebase_map.target_timestamps),
             inverse_timebase_map.source_timestamps,
             data,
         )
         assert np.allclose(resampled_data, expected_resampled_data)
+
+
+        double_transform = self.timebase_map.resample(inverse_timebase_map.resample(data))
+        assert np.allclose(data, double_transform[:len(data)])
 
 
 if __name__ == "__main__":

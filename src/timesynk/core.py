@@ -1,9 +1,29 @@
 import numbers
+from functools import cached_property
 from typing import Iterable, Optional, Union
 
 import numpy as np
 
 SpanType = Union[numbers.Real, Iterable[numbers.Real]]
+
+
+def _round_to_some_decimal(value: numbers.Real, decimal: int) -> numbers.Real:
+    """
+    Round a value to some decimal places.
+
+    Parameters
+    ----------
+    value : numbers.Real
+        Value to be rounded.
+    decimal : int
+        Number of decimal places to round to.
+
+    Returns
+    -------
+    numbers.Real
+        Rounded value.
+    """
+    return round(value, decimal)
 
 
 def _validate_and_set_span(span: Optional[SpanType]) -> np.ndarray:
@@ -35,7 +55,7 @@ def _validate_and_set_span(span: Optional[SpanType]) -> np.ndarray:
 
     if isinstance(span, Iterable):
         for elem in span:
-            if not isinstance(elem, numbers.Number):
+            if not isinstance(elem, numbers.Number) and not elem is None:
                 raise TypeError("Span iterable must contain only numeric values")
 
         if len(span) >= 1 and len(span) <= 3:
@@ -67,14 +87,14 @@ class TimeBase:
     -------
     map_times_to(target_timebase, data)
         Maps the times from this TimeBase to another TimeBase.
-    interpolate_to(target_timebase, data)
-        Interpolates the times from this TimeBase to another TimeBase.
+    resample_to(target_timebase, data)
+        Resample the values from this TimeBase to another TimeBase.
     """
 
     def __init__(
         self,
         event_times: Iterable[numbers.Real],
-        event_ids: Optional[Iterable[numbers.Real]] = None,
+        event_ids: Optional[Iterable] = None,
         span: Optional[SpanType] = None,
     ) -> None:
         """
@@ -105,6 +125,15 @@ class TimeBase:
         if len(self.event_times) != len(self.event_ids):
             raise ValueError("Event times and event ids must have the same length.")
 
+    def __repr__(self) -> str:
+        return (
+            f"TimeBase(event_times={self.event_times}, event_ids={self.event_ids}, "
+            f"span={self.span})"
+        )
+
+    def __str__(self) -> str:
+        return f"TimeBase with {len(self.event_times)} events, " f"span={self.span}"
+
     def _map_to(self, other_timebase: "TimeBase") -> "TimeBaseMap":
         """
         Create a mapping from this TimeBase to another TimeBase.
@@ -121,7 +150,7 @@ class TimeBase:
         """
         return TimeBaseMap.from_timebases(self, other_timebase)
 
-    def map_times_to(
+    def transform_to(
         self, target_timebase: "TimeBase", data: Iterable[numbers.Real]
     ) -> Iterable[numbers.Real]:
         """
@@ -142,23 +171,23 @@ class TimeBase:
         own_to_target_map = self._map_to(target_timebase)
         return own_to_target_map.transform(data)
 
-    def interpolate_to(
+    def resample_to(
         self, target_timebase: "TimeBase", data: Iterable[numbers.Real]
     ) -> Iterable[numbers.Real]:
         """
-        Interpolates the times from this TimeBase to another TimeBase.
+        Resample the times from this TimeBase to another TimeBase.
 
         Parameters
         ----------
         target_timebase : TimeBase
             The target TimeBase.
         data : Iterable[numbers.Real]
-            The data to be interpolated.
+            The data to be resampled.
 
         Returns
         -------
         Iterable[numbers.Real]
-            The interpolated data.
+            The resampled data.
         """
         own_to_target_map = self._map_to(target_timebase)
         return own_to_target_map.resample(data)
@@ -220,8 +249,17 @@ class TimeBaseMap:
         self._source_span = _validate_and_set_span(source_span)
         self._target_span = _validate_and_set_span(target_span)
 
-        self._source_timestamps = None
-        self._target_timestamps = None
+    def __repr__(self) -> str:
+        return (
+            f"TimeBaseMap(coef={self._coef}, offset={self._offset}, "
+            f"source_span={self._source_span}, target_span={self._target_span})"
+        )
+
+    def __str__(self) -> str:
+        return (
+            f"TimeBaseMap with coef={self._coef}, offset={self._offset}, "
+            f"source_span={self._source_span}, target_span={self._target_span}"
+        )
 
     @classmethod
     def from_timebases(
@@ -247,10 +285,11 @@ class TimeBaseMap:
         ValueError
             If there are no shared event IDs between the source and target TimeBase.
         """
+
         shared, source_index, target_index = np.intersect1d(
             source_timebase.event_ids, target_timebase.event_ids, return_indices=True
         )
-        if len(shared) <= 1:
+        if len(shared) <= 2:
             raise ValueError(
                 "No shared barcodes found. Check the barcode_numbers for the two original barcodes."
             )
@@ -290,7 +329,7 @@ class TimeBaseMap:
         offset = np.mean([timebase_map._offset for timebase_map in timebase_map_list])
         return cls(coef=coef, offset=offset)
 
-    @property
+    @cached_property
     def source_timestamps(self) -> np.ndarray:
         """
         Get the source timestamps.
@@ -306,14 +345,12 @@ class TimeBaseMap:
             If the source span is not provided.
         """
         if self._source_span is None:
-            raise ValueError("Source span must be provided to interpolate values!")
-        if self._source_timestamps is None:
-            self._source_timestamps = np.arange(
-                self._source_span[0], self._source_span[1], self._source_span[2]
-            )
-        return self._source_timestamps
+            raise ValueError("Source span must be provided to resample values!")
+        return np.arange(
+            self._source_span[0], self._source_span[1], self._source_span[2]
+        )
 
-    @property
+    @cached_property
     def target_timestamps(self) -> np.ndarray:
         """
         Get the target timestamps.
@@ -329,12 +366,30 @@ class TimeBaseMap:
             If the target span is not provided.
         """
         if self._target_span is None:
-            raise ValueError("Target span must be provided to interpolate values!")
-        if self._target_timestamps is None:
-            self._target_timestamps = np.arange(
-                self._target_span[0], self._target_span[1], self._target_span[2]
-            )
-        return self._target_timestamps
+            raise ValueError("Target span must be provided to resample values!")
+        
+        # ROUND_DECIMALS=10
+        #target_dt = round(self._target_span[2] / self._coef, ROUND_DECIMALS)
+        # self.transform(
+        #target_endpoint = round(self._target_span[1] / self._coef, ROUND_DECIMALS)  # + self._offset
+        return np.arange(
+             self._target_span[0], self._target_span[1]+1e-10, self._target_span[2])
+        
+        # return self.transform(np.arange(
+        #      self._target_span[0], target_endpoint, target_dt)
+        # )
+        # ROUND_DECIMALS = 10
+
+        # if self._target_span is None:
+        #     return None
+        # target_dt = round(self._target_span[2] * self._coef, ROUND_DECIMALS)
+        # target_endpoint = round(self._target_span[1] * self._coef, ROUND_DECIMALS)  # + self._offset
+        
+        # print(self._target_span[0], target_endpoint, target_dt,
+        #       len(np.arange(self._target_span[0], target_endpoint, target_dt)))
+        # return np.arange(
+        #     self._target_span[0], target_endpoint, target_dt
+        # )
 
     @property
     def inverse(self) -> "TimeBaseMap":
@@ -388,8 +443,25 @@ class TimeBaseMap:
         ValueError
             If the length of the data does not match the length of the source timestamps.
         """
-        if len(data) != len(self.source_timestamps):
+
+        #print(len(self.target_timestamps), len(self.source_timestamps), len(data))
+
+        if abs(len(data) - len(self.source_timestamps)) > 1:
             raise ValueError(
-                "Data to resample must have the same length as the source timestamps"
+                f"Data to resample (len {len(data)}) must have the same length as the source timestamps {len(self.source_timestamps)}"
             )
-        return np.interp(self.target_timestamps, self.source_timestamps, data)
+        
+        # clip or pad to avoid off-by-one errors of data and source_timestamps:
+        if len(data) < len(self.source_timestamps):
+            data = np.pad(data, (0, len(self.source_timestamps) - len(data)))
+        elif len(data) > len(self.source_timestamps):
+            data = data[:len(self.source_timestamps)]
+
+        # We will resample the data to target timestamps mapped onto source timebase:
+        target_to_source_timestamps = self.inverse.transform(self.target_timestamps)
+
+        return np.interp(target_to_source_timestamps, 
+                         self.source_timestamps, 
+                         data,
+                         left=np.nan,
+                         right=np.nan)
