@@ -189,15 +189,18 @@ class TestTimeBase:
             timebase_with_span_scaled, data
         )
         _map = timebase_with_span_base._map_to(timebase_with_span_scaled)
-        expected_data = np.interp(_map.target_timestamps, _map.source_timestamps, data)
-        assert np.allclose(resampled_data, expected_data)
+        expected_data = np.interp(_map.target_timestamps, _map.source_timestamps, data, left=np.nan,
+                         right=np.nan)
+        filter_non_nan = ~np.isnan(resampled_data)
+        assert np.allclose(resampled_data[filter_non_nan], expected_data[filter_non_nan], equal_nan=True)
 
         expected_source = timebase_with_span_scaled.resample_to(
             timebase_with_span_base, resampled_data
         )
         # clip to avoid off-by-one errors:
         expected_source = expected_source[: len(data)]
-        assert np.allclose(expected_source, data)
+        filter_non_nan = ~np.isnan(expected_source)
+        assert np.allclose(expected_source[filter_non_nan], data[filter_non_nan], equal_nan=True)
 
 
 base_events_array = np.array([1, 2, 3, 4, 5])
@@ -347,8 +350,11 @@ class TestTimeBaseMapInterpolation:
             self.timebase_map.inverse.transform(self.timebase_map.target_timestamps),
             self.timebase_map.source_timestamps,
             data,
+            left=np.nan,
+            right=np.nan
         )
-        assert np.allclose(resampled_data, expected_resampled_data)
+        filter_non_nan = ~np.isnan(resampled_data)
+        assert np.allclose(resampled_data[filter_non_nan], expected_resampled_data[filter_non_nan])
 
     @pytest.mark.parametrize(
         "data",
@@ -383,12 +389,16 @@ class TestTimeBaseMapInterpolation:
             self.timebase_map.transform(inverse_timebase_map.target_timestamps),
             inverse_timebase_map.source_timestamps,
             data,
+            left=np.nan,
+                         right=np.nan
         )
-        assert np.allclose(resampled_data, expected_resampled_data)
+        filter_non_nan = ~np.isnan(resampled_data)
+        assert np.allclose(resampled_data[filter_non_nan], expected_resampled_data[filter_non_nan])
 
 
         double_transform = self.timebase_map.resample(inverse_timebase_map.resample(data))
-        assert np.allclose(data, double_transform[:len(data)])
+        filter_non_nan = ~np.isnan(double_transform[:len(data)])
+        assert np.allclose(data[filter_non_nan], double_transform[:len(data)][filter_non_nan])
 
 
 if __name__ == "__main__":

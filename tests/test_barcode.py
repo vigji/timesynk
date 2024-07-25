@@ -85,9 +85,9 @@ def test_identity_resampling(barcode_raw_data):
     )
 
     # assert np.allclose(barcode1.array, barcode2data_to_barcode1data)
-    print(sum(barcode1.array - barcode2data_to_barcode1data))
+    print(np.nansum(barcode1.array - barcode2data_to_barcode1data))
     assert (
-        sum(barcode1.array - barcode2data_to_barcode1data) < len(barcode1.array) * 0.01
+        np.nansum(barcode1.array - barcode2data_to_barcode1data) < len(barcode1.array) * 0.01
     )
 
     assert np.isclose(barcode1.transform_idxs_to(barcode2, 0), 0, atol=0.5)
@@ -144,62 +144,11 @@ def test_freqchange_resampling(barcode_raw_data):
 
     # test difference to allow for +/-1 shifts in resampling
     assert (
-        sum(barcode1.array - barcode2data_to_barcode1data) < len(barcode1.array) * 0.01
+        np.nansum(barcode1.array - barcode2data_to_barcode1data) < len(barcode1.array) * 0.01
     )
 
 # resample to signal with broader scope
 def test_freqchange_broader_resampling(barcode_raw_data):
-    n_pts = len(barcode_raw_data)
-    signal = np.random.randn(n_pts)
-    b1_slice = slice(n_pts//4, 3*n_pts//4)
-    freq_change = 2
-    barcode1 = BarcodeSignal(barcode_raw_data[b1_slice], fs=fs_test)
-    barcode2 = BarcodeSignal(barcode_raw_data[::freq_change], fs=fs_test / freq_change)
-
-    barcode1data_to_barcode2data = barcode1.resample_to(barcode2, signal[b1_slice])
-
-    barcode2data_to_barcode1data = barcode2.resample_to(
-        barcode1, barcode1data_to_barcode2data
-    )
-
-    # test difference to allow for +/-1 shifts in resampling
-    assert (
-        sum(barcode1.array - barcode2data_to_barcode1data) < len(barcode1.array) * 0.01
-    )
-
-
-if __name__ == "__main__":
-    # %%
-    # %matplotlib widget
-
-    barc = BarcodeSignal(np.load(test_barcode_filename), fs=fs_test)
-    # print(", ".join([str(i) for i in barc.barcode_idxs]))
-    barcode_raw_data = np.load(test_barcode_filename)[:47000]
-    from matplotlib import pyplot as plt
-
-    freq_change = 2
-    barcode1 = BarcodeSignal(barcode_raw_data, fs=fs_test)
-    barcode2 = BarcodeSignal(barcode_raw_data[::freq_change], fs=fs_test / freq_change)
-
-    barcode1data_to_barcode2data = barcode1.resample_to(barcode2, barcode1.array)
-    # print(len(barcode1.array), len(barcode1data_to_barcode2data))
-    barcode2data_to_barcode1data = barcode2.resample_to(
-        barcode1, barcode1data_to_barcode2data
-    )
-
-    _map = barcode1._map_to(barcode2, "idxs")
-    print(_map)
-    # print(len(_map.source_timestamps))
-    # print(len(_map.target_timestamps))
-    # _map.resample()
-    # assert np.allclose(barcode1.array, barcode2data_to_barcode1data)
-
-    # plt.figure()
-    # plt.plot(barcode1.array)
-    # plt.plot(barcode2.array + 1)
-    # plt.plot(barcode1data_to_barcode2data + 2)
-    # #plt.show()
-
     n_pts = len(barcode_raw_data)
     data = np.random.randn(n_pts)
     b1_slice = slice(n_pts//3, 2*n_pts//3)
@@ -213,13 +162,115 @@ if __name__ == "__main__":
         barcode1, barcode1_to_barcode2data
     )
 
-    # plt.figure()
-    # plt.plot(data[b1_slice])
-    # plt.plot(barcode1.array)
-    # plt.plot(barcode2data_to_barcode1data)
-    # plt.show()
-    print(np.corrcoef())
-    # # plt.plot(barcode1_to_barcode2data+6)
-    # # plt.plot(barcode2.array + 6)
-    # plt.show()
+    filt_valid = ~np.isnan(barcode2data_to_barcode1data)
+
+    # We will have lost information with the resampling, so the traces are just correlated:
+    assert np.corrcoef(barcode2data_to_barcode1data[filt_valid], data[b1_slice][filt_valid])[0, 1] > 0.5
+
+
+# resample to signal with smaller scope
+def test_freqchange_narrower_resampling(barcode_raw_data):
+    n_pts = len(barcode_raw_data)
+    data = np.random.randn(n_pts)
+    b2_slice = slice(n_pts//3, 2*n_pts//3)
+    freq_change = 2
+    barcode1 = BarcodeSignal(barcode_raw_data, fs=fs_test)
+    barcode2 = BarcodeSignal(barcode_raw_data[b2_slice][::freq_change], fs=fs_test / freq_change)
+
+    barcode1_to_barcode2data = barcode1.resample_to(barcode2, data)
+
+    barcode2data_to_barcode1data = barcode2.resample_to(
+        barcode1, barcode1_to_barcode2data
+    )
+
+    assert all(np.isnan(barcode2data_to_barcode1data[:b2_slice.start]))
+    assert all(np.isnan(barcode2data_to_barcode1data[b2_slice.stop:]))
+
+    # We will have lost information with the resampling, so the traces are just correlated:
+
+    filt_valid = ~np.isnan(barcode2data_to_barcode1data)
+    assert np.corrcoef(barcode2data_to_barcode1data[filt_valid], data[filt_valid])[0, 1] > 0.5
+
+
+
+
+# if __name__ == "__main__":
+#     # %%
+#     # %matplotlib widget
+
+#     barc = BarcodeSignal(np.load(test_barcode_filename), fs=fs_test)
+#     # print(", ".join([str(i) for i in barc.barcode_idxs]))
+#     barcode_raw_data = np.load(test_barcode_filename)[:47000]
+#     from matplotlib import pyplot as plt
+
+#     freq_change = 2
+#     barcode1 = BarcodeSignal(barcode_raw_data, fs=fs_test)
+#     barcode2 = BarcodeSignal(barcode_raw_data[::freq_change], fs=fs_test / freq_change)
+
+#     barcode1data_to_barcode2data = barcode1.resample_to(barcode2, barcode1.array)
+#     # print(len(barcode1.array), len(barcode1data_to_barcode2data))
+#     barcode2data_to_barcode1data = barcode2.resample_to(
+#         barcode1, barcode1data_to_barcode2data
+#     )
+
+#     _map = barcode1._map_to(barcode2, "idxs")
+#     print(_map)
+#     # print(len(_map.source_timestamps))
+#     # print(len(_map.target_timestamps))
+#     # _map.resample()
+#     # assert np.allclose(barcode1.array, barcode2data_to_barcode1data)
+
+#     # plt.figure()
+#     # plt.plot(barcode1.array)
+#     # plt.plot(barcode2.array + 1)
+#     # plt.plot(barcode1data_to_barcode2data + 2)
+#     # #plt.show()
+
+#     ## broader:
+#     n_pts = len(barcode_raw_data)
+#     data = np.random.randn(n_pts)
+#     b1_slice = slice(n_pts//3, 2*n_pts//3)
+#     freq_change = 2
+#     barcode1 = BarcodeSignal(barcode_raw_data[b1_slice], fs=fs_test)
+#     barcode2 = BarcodeSignal(barcode_raw_data[::freq_change], fs=fs_test / freq_change)
+
+#     barcode1_to_barcode2data = barcode1.resample_to(barcode2, data[b1_slice])
+
+#     barcode2data_to_barcode1data = barcode2.resample_to(
+#         barcode1, barcode1_to_barcode2data
+#     )
+
+#     plt.figure()
+#     plt.plot(data[b1_slice])
+#     plt.plot(barcode1.array)
+#     plt.plot(barcode2data_to_barcode1data)
+#     filt_valid = ~np.isnan(barcode2data_to_barcode1data)
+#     assert np.corrcoef(barcode2data_to_barcode1data[filt_valid], data[b1_slice][filt_valid])[0, 1] > 0.5
+#     plt.plot(barcode1_to_barcode2data+6)
+#     plt.plot(barcode2.array + 6)
+#     # plt.show()
+
+#     n_pts = len(barcode_raw_data)
+#     data = np.random.randn(n_pts)
+#     b2_slice = slice(n_pts//3, 2*n_pts//3)
+#     freq_change = 2
+#     barcode1 = BarcodeSignal(barcode_raw_data, fs=fs_test)
+#     barcode2 = BarcodeSignal(barcode_raw_data[b2_slice][::freq_change], fs=fs_test / freq_change)
+
+#     barcode1_to_barcode2data = barcode1.resample_to(barcode2, data)
+
+#     barcode2data_to_barcode1data = barcode2.resample_to(
+#         barcode1, barcode1_to_barcode2data
+#     )
+
+#     plt.figure()
+#     plt.plot(data)
+#     plt.plot(barcode1.array)
+#     plt.plot(barcode2data_to_barcode1data)
+#     # plt.show()
+#     # filt_valid = ~np.isnan(barcode2data_to_barcode1data)
+#     # assert np.corrcoef(barcode2data_to_barcode1data[filt_valid], data[b1_slice][filt_valid])[0, 1] > 0.5
+#     plt.plot(barcode1_to_barcode2data+6)
+#     plt.plot(barcode2.array + 6)
+#     plt.show()
 
