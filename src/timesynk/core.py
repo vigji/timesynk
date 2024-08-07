@@ -465,3 +465,52 @@ class TimeBaseMap:
                          data,
                          left=np.nan,
                          right=np.nan)
+
+
+if __name__ == "__main__":
+    # %%
+
+    data_path_list = [r"F:\Luigi\M19_D558\20240419\133356\NpxData"]
+    run_barcodeSync = False
+    run_preprocessing = True # run preprocessing and spikesorting
+    callKSfromSI = False
+
+    # %%
+    # %matplotlib widget
+    from matplotlib import pyplot as plt
+    import spikeinterface.extractors as se
+    import spikeinterface.widgets as sw
+    import spikeinterface.preprocessing as st
+
+    from spikeinterface import get_noise_levels, aggregate_channels
+    from pathlib import Path
+    import os
+    import numpy as np
+
+    # from preprocessing_utils import *
+    from nwb_conv.oephys import OEPhysDataFolder
+
+
+    # %%
+    data_path = data_path_list[0]
+    # data_path = "/Users/vigji/Desktop/test_mpa_dir/P02_MPAOPTO_LP/e05_doubleservoarm-ephys-pagfiber/v01/M20_D545/20240424/154810"
+    oephys_data = OEPhysDataFolder(data_path)
+
+    all_stream_names, ap_stream_names = oephys_data.stream_names, oephys_data.ap_stream_names
+
+    # %%
+    npx_barcode = oephys_data.reference_npx_barcode
+
+    oephys_data.nidaq_channel_map = {0: "frames-log", 
+                                    1: "laser-log", 
+                                    2: "-", 
+                                    3: "motor-log", 
+                                    4: "barcode", 
+                                    5: "-", 
+                                    6: "-", 
+                                    7: "-"}
+    nidaq_data = oephys_data.nidaq_recording
+
+    nidaq_barcode = nidaq_data.barcode
+    laser_data = nidaq_data.continuous_signals["laser-log"]
+    nidaq_barcode.barcode_numbers
