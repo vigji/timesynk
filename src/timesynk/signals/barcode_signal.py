@@ -210,8 +210,8 @@ class BarcodeSignal(DigitalSignal):
             signals_barcodes.append(barcode)
 
         # Create merged array with timestamps stacked above their barcode values
-        barcode_numbers = np.array(signals_barcodes, dtype=int)
-        barcode_idxs = np.array(signals_barcode_start_idxs, dtype=int)
+        barcode_numbers = np.array(signals_barcodes, dtype=np.uint64)
+        barcode_idxs = np.array(signals_barcode_start_idxs, dtype=np.uint64)
 
         return dict(barcode_numbers=barcode_numbers, barcode_idxs=barcode_idxs)
 
